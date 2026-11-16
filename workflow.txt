@@ -1,0 +1,514 @@
+KnowledgePilot AI
+A Multi-User Agentic Learning & Research Platform with RAG, MCP, Agent Harnessing and Reinforcement Learning
+Project typeFull-stack Agentic AI
+
+
+PlatformLive Web Application
+
+
+UsersMultiple Students
+
+
+DevelopmentPython 3.12
+
+
+
+
+Project vision
+
+Koi bhi student hamari website par account create kare, apne courses add kare, documents upload kare aur AI se unhi documents ke according study, quizzes, summaries, assignments ki understanding aur research assistance le sake.
+
+Agent apne tools khud select karega, harness uski execution control karega, aur ek separate learning mechanism feedback aur evaluation se agent ki decisions improve karega.
+
+1. Original proposal vs upgraded project
+Tumhare attached proposal ka original scope ek single-user Personal Knowledge Agent tha. Usmein study assistant, FYP research assistant, RAG, LangGraph, MCP, n8n, ROUGE/BLEU aur hallucination checking included the. Agentic AI Project Proposal.docx.pdf
+ Agentic AI Project Proposal.docx.pdf
+
+
+Ab hum usko expand kar rahe hain:
+Component	Original	Final plan
+Study Assistant	Yes	Yes
+Research Assistant	Yes	Yes
+RAG + Vector DB	Yes	Yes
+LangGraph Agent	Yes	Yes
+MCP Tools	Yes	Yes
+n8n Automation	Yes	Yes
+Evaluation	Yes	Enhanced
+Live website	Not specified	Added
+Multiple student accounts	No	Added
+Runtime document upload	Not explicit	Added
+Isolated student knowledge	No	Added
+Agent Harness	Not explicit	Added
+Reinforcement Learning	No	Added
+Dashboard and analytics	Basic UI	Enhanced
+Public deployment	Not specified	Added
+
+Important: Yeh expanded scope original proposal se considerably bada hai. Sir se updated scope approve karwana chahiye. Development ko phases mein rakhenge taake mandatory deliverables advanced features ki wajah se incomplete na reh jayein.
+2. Complete system architecture
+Students
+Accounts • Courses • Documents • Questions
+
+Frontend — Streamlit
+Dashboard • Upload • Chat • Quiz • Research
+
+Backend — FastAPI
+Authenticated requests • Upload jobs • User access controls
+
+Agent Harness
+Context • Tool permissions • Memory • Execution limits • Logging
+
+LangGraph Agent
+Route → Plan → Execute tools → Check results
+
+RAG System
+Course retrieval
+
+MCP Servers
+Structured tool access
+
+Research APIs
+Find academic papers
+
+Study Tools
+Quiz, summaries, deadlines
+
+
+
+Evaluation & Verification
+Grounding • Citations • Quality • Latency
+
+Answer to Student
+With verified source references where applicable
+
+Evaluation Data → RL Policy Training
+Improve strategy selection → Test → Deploy approved policy
+
+Is architecture mein RAG knowledge provide karta hai, agent decisions leta hai, harness execution control karta hai, aur RL component selected decisions ko optimize karta hai. Yeh chaar alag responsibilities hain.
+3. Student ka end-to-end workflow
+
+1. Student registration
+
+Student signup/login karega. System uske liye unique user ID aur private workspace create karega.
+
+
+
+2. Create course
+
+For example: Information Security, Artificial Intelligence, PDC. Har course ki unique ID hogi.
+
+
+
+3. Upload documents
+
+PDF, DOCX, PPTX, TXT. Files private storage mein save hongi aur background indexing job start hogi.
+
+
+
+4. Processing
+
+Text extraction, cleaning, chunking, embeddings aur vector indexing. UI mein Processing → Ready ya Failed status dikhega.
+
+
+
+5. Ask AI
+
+Student selected course se question poochega. Retrieval sirf authorized documents se hogi.
+
+
+
+6. Agent execution
+
+Agent task classify karega, tool choose karega, relevant information fetch karega aur answer banayega.
+
+
+
+7. Verification + feedback
+
+Citation validation, final response, student rating aur evaluation logging.
+
+
+
+Example: Student ne 2:00 PM par lecture upload ki. Upload process complete hote hi, bina server restart ya manually training kiye woh us lecture se questions pooch sakega. Actual processing time file aur server par depend karega.
+4. Development modules — kya kya build hoga?
+Module A — User accounts and course management
+Ismein hum student account system banayenge.
+
+Features: signup, login, logout, student dashboard, create/rename/delete course, upload and manage notes, chat history, delete account and personal data.
+
+Backend design: users, courses, documents, chats, messages jaisi relational tables. Har owned resource ki user ID backend par verify hogi.
+
+Security: sirf frontend par course hide karna sufficient nahi. Backend query aur vector search dono ko user permissions enforce karni hongi.
+
+Output: do alag accounts simultaneously login karke apna data independently access kar saken.
+Module B — Dynamic document ingestion
+Yeh hamare system ka one of the most important components hoga.
+1
+
+PDF / PPTX / DOCX / TXT upload
+
+
+2
+
+File type, size and security validation
+
+
+3
+
+Original file saved in private storage
+
+
+4
+
+Extract readable text and page references
+
+
+5
+
+Clean and split text into overlapping chunks
+
+
+6
+
+Generate embeddings using Sentence-Transformers
+
+
+7
+
+Save vectors with user/course/document metadata
+
+
+8
+
+Set document status to Ready
+
+
+Text-based documents se start karenge. Scanned PDFs ke liye OCR later add karenge, kyunki image extraction comparatively complex hai.
+
+Duplicate detection, re-upload handling aur course delete karne par associated vector cleanup bhi implement karenge.
+Module C — RAG engine
+Yeh agent ka knowledge-retrieval system hai.
+
+Example:
+
+Student: "Explain SQL Injection from Week 8."
+
+RAG engine:
+1. Student ka authorized course identify karega.
+2. Question ka embedding generate karega.
+3. Relevant chunks vector database se retrieve karega.
+4. Chunks aur source metadata LLM ko provide karega.
+5. Answer ke saath actual document/page references return karega.
+Hum hybrid retrieval aur reranking ko later improvements mein consider karenge, agar initial semantic retrieval insufficient ho.
+
+Important: Agar information documents mein na ho, agent ko clearly bolna hoga ke provided material mein answer nahi mila. Invented citations allowed nahi hongi.
+Module D — LangGraph agent
+Yahan project proper agentic banta hai.
+
+Traditional RAG mein workflow mostly fixed hota hai. Hamara LangGraph agent task ke mutabiq different tools aur steps choose karega.
+Student Request
+
+
+Task Router
+Question ka intent identify karega
+
+Study question
+Retrieve notes
+
+Quiz request
+Retrieval + Quiz tool
+
+Research request
+Paper search tool
+
+Deadline query
+Course schedule tool
+
+
+
+Execute → Verify → Respond
+
+
+Advanced example: "Meri Week 5 aur Week 6 ki lectures compare karo, differences explain karo aur phir 10 tricky MCQs banao."
+
+Agent multiple retrievals karega, relevant context combine karega aur quiz tool run karega. Iski tool execution trace hum testing mein inspect karenge.
+Module E — MCP integration
+MCP ka role hoga agent ko external tools aur resources se structured interface dena.
+
+Hum ek simple custom MCP server banana seekhenge jisme initially:
+MCP Tool	Function
+list_courses	Student ke accessible courses list
+search_course_material	Selected documents retrieve
+get_deadlines	Relevant deadlines fetch
+search_research_papers	Academic API search
+get_paper_metadata	Paper details fetch
+
+MCP tool permissions session ke authenticated user context se enforce honi chahiye. LLM ko arbitrary student ID select karke doosron ke records read karne ka access nahi denge.
+Module F — Agent Harness
+Agent harness hamare agent ki execution ko reliable aur controlled banayega.
+Harness subsystem	Hamara implementation
+Context management	Relevant context selection, token limits
+Tool execution	Tool schemas, permissions, allowed calls
+State and memory	Chat state, checkpoints, user-scoped memory
+Error recovery	Timeouts, safe retries, failure handling
+Verification	Evidence-based answer checks
+Observability	Execution logs, traces, latency and token usage
+
+Practical example: Agar Research API fail ho jaye, harness configured retry karega. Agar phir bhi unavailable ho, agent fabricated paper results dene ke bajaye error explain karega.
+
+Memory mein bhi distinction rakhenge: short-term conversation state, saved course knowledge aur explicitly permitted long-term preferences alag honge.
+Module G — Reinforcement Learning
+Bhai, yeh advanced module hamara differentiator ho sakta hai — lekin isko scientifically defensible tarike se implement karenge.
+
+RL ka goal: agent ko better tool/retrieval strategy select karna sikhana.
+
+Initial version mein contextual bandit use karenge.
+Illustrative RL Experiment
+ContextStudent asks a complex question about two lectures.
+
+
+Available strategies
+A. Retrieve top 3 chunks
+Action A
+
+B. Retrieve top 8 chunks
+Action B
+
+C. Multi-query retrieval
+Action C
+
+
+
+Evaluate result
+Correctness • Citation grounding • Latency • Cost
+
+Reward → Update Policy
+Learn which strategy performs best for similar contexts
+
+For example, experiment ke liye reward define kar sakte hain:
+\[
+R=0.5A+0.3C+0.2E
+\]
+
+Where:
+- \(A\) = normalized answer accuracy
+- \(C\) = verified citation correctness
+- \(E\) = normalized efficiency score (latency aur resource usage)
+Yeh proposed formula hai, final validated reward function nahi.
+
+RL training workflow: Baseline test → logged actions → evaluated rewards → policy update → held-out testing → compare improvements → approve deployment.
+
+RL ko arbitrary student feedback se immediately model weights modify karne ki permission nahi denge. Feedback noisy ho sakta hai; privacy aur reward hacking dono handle karna hoga.
+
+Future extension mein PPO/GRPO jaisi LLM fine-tuning techniques explore kar sakte hain, lekin unhein MVP ka compulsory requirement nahi banayenge.
+Module H — Research Assistant
+Student apna FYP topic enter karega. Research module:
+- arXiv / Semantic Scholar APIs se relevant papers search karega.
+- Title, authors, year, URL/DOI aur abstract display karega.
+- Selected accessible papers ko knowledge base mein index karega.
+- Methodology, findings, limitations aur research gap compare karega.
+- Source-backed literature review draft create karega.
+- Paper metadata aur generated review mein verified references rakhega.
+Agar full paper accessible nahi hai to assistant explicitly batayega ke analysis abstract-based hai.
+Module I — Automation and deadlines
+Student course deadlines manually enter karega ya available structured documents se suggested dates extract karwa sakega.
+
+n8n ke through reminders automate kar sakte hain, initially in-app/email workflow ke saath.
+
+Deadline extract hone par automatic scheduling ke bajaye user confirmation lenge, kyunki PDF date interpretation incorrect ho sakti hai.
+Module J — Evaluation and testing
+Sir ko demonstrate karna hai ke system accurate aur useful hai.
+
+Hum ek evaluation dataset create karenge, jisme manually verified questions, answers aur document citations hon.
+Metric	Kya measure hoga?
+Retrieval Recall@K	Correct evidence retrieve hua?
+Citation accuracy	Citation actual source support karti hai?
+Answer correctness	Answer factually correct hai?
+Faithfulness	Answer provided evidence se supported hai?
+ROUGE / BLEU	Reference summary se text overlap
+Tool success rate	Agent correct tools execute karta hai?
+Task completion	Multi-step request complete hui?
+Latency	Response kitni quickly aaya?
+User isolation	Cross-user access blocked hai?
+RL improvement	Learned policy baseline se better hai?
+
+ROUGE/BLEU ko retain karenge kyunki proposal mein hai, lekin unko factual correctness ka sole measure nahi banayenge.
+5. Recommended technology stack
+Layer	Technology
+Programming	Python 3.12
+Frontend	Streamlit
+Backend	FastAPI
+Authentication	Supabase Auth
+Relational database	PostgreSQL / Supabase
+File storage	Private object storage
+Embedding model	Sentence-Transformers
+Vector database	ChromaDB initially
+LLM	Ollama locally / hosted API
+Agent orchestration	LangGraph
+MCP	Python MCP SDK
+Harness	Custom Python modules + LangGraph
+RL prototype	Contextual bandit (Python)
+Automation	n8n
+Evaluation	ROUGE, BLEU, custom test harness
+Version control	Git + GitHub
+Deployment	Hosted frontend, backend and persistent services
+
+Yeh planned stack hai, final compatibility-tested stack nahi. Cloud deployment par ChromaDB ko persistent remote service ya PostgreSQL vector extension se replace karna practical ho sakta hai.
+6. Project folder structure
+Hum starting mein modular monorepo rakhenge, taake frontend, backend, AI aur testing separate hon.
+KnowledgePilot-AI/
+
+frontend/
+
+— Streamlit UI
+
+backend/
+
+— FastAPI routes, auth, database
+
+ingestion/
+
+— PDF parsing, chunking, embeddings
+
+rag/
+
+— Retrieval and grounded generation
+
+agent/
+
+— LangGraph nodes and workflows
+
+harness/
+
+— Context, memory, safeguards, tracing
+
+mcp_servers/
+
+— Agent tools and resources
+
+research/
+
+— Paper retrieval and reviews
+
+rl/
+
+— Reward, bandit policy, experiments
+
+evaluation/
+
+— Benchmarks and test reports
+
+automation/
+
+— n8n workflow definitions
+
+tests/
+
+— Unit, integration, security tests
+
+docs/
+
+— Architecture, notes and viva material
+
+.env.example
+
+— Safe environment template
+
+README.md
+
+— Setup and documentation
+
+
+
+Actual development mein yeh folders gradually banenge. Pehle din empty modules ka mountain nahi create karenge.
+7. Master development roadmap
+Yeh hamari development sequence aur acceptance criteria honge.
+Explore development phases
+Choose a phase to see exact milestones
+1 of 8
+
+
+
+FoundationDeployment
+
+ PreviousFoundation
+Next 
+Python, Git, VS Code, project structure
+
+Development checklist
+Python 3.12 virtual environment
+
+Basic functions and data structures
+
+Git repository and first script
+
+
+Completion criteria
+
+Clean project setup and self-written Python script
+
+
+8. How we'll make the project viva-proof
+Tumhare sir ne coding independently karne ki instruction di hai, isliye har phase mein hamara learning pattern hoga:
+
+Concept → Diagram → Small coding exercise → Your implementation → Debugging → Testing → Viva.
+
+For example, RAG module ke waqt tumhe yeh samajhna hoga:
+- Embeddings kya hain aur keyword search se kaise different hain?
+- Chunk size aur overlap kyun important hain?
+- Similarity search kaise work karti hai?
+- RAG aur fine-tuning mein difference kya hai?
+- Citation kaise verify karte hain?
+- User A ka data User B ko kyun nahi milna chahiye?
+- Agent harness aur LangGraph mein difference kya hai?
+- RL policy ne improvement ki ya nahi, kaise prove karoge?
+Sir agar code mein retrieval count 5 se 10 karne ko bol dein, tumhe uska impact explain karna aana chahiye.
+9. Final deliverables
+
+Live web application
+
+Public URL with student login and runtime uploads
+
+
+
+GitHub repository
+
+Organized source, setup instructions and tests
+
+
+
+Architecture diagrams
+
+RAG, LangGraph, MCP, harness and RL workflows
+
+
+
+Evaluation report
+
+Baseline performance, experiments and measured results
+
+
+
+Project report
+
+Methodology, implementation, results and limitations
+
+
+
+Viva-ready demo
+
+Real student scenarios and explainable execution traces
+
+
+
+10. Hamara first important milestone
+Milestone 1 — Working Document Chat
+Next target
+
+Foundation + basic RAG
+Upload Information_Security.pdf
+
+Extract → Chunk → Embed → Store
+
+Ask: "Explain SQL Injection."
+
+Receive correct answer with PDF citation

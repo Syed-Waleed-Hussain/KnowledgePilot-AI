@@ -1,0 +1,11 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.9,<1
+PyMuPDF>=1.24,<2
+sentence-transformers>=3.3,<6
+chromadb>=0.5.23,<2
+groq>=0.11,<2
+langgraph>=1.0,<2
+mcp>=2.0,<3
+python-dotenv>=1,<2
+pytest>=8,<9
