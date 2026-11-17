@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, LockKeyhole, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, LockKeyhole, Sparkles, Eye, EyeOff } from 'lucide-react';
 import { authConfigured, signIn, signUp } from '../services/auth.js';
 
 export default function AuthPage({ navigate }) {
+  const [passwordVisible,setPasswordVisible]=useState(false);
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,10 +30,10 @@ export default function AuthPage({ navigate }) {
       <div className="eyebrow">YOUR PRIVATE STUDY SPACE</div>
       <h1>{mode === 'login' ? <>Welcome <em>back.</em></> : <>Create your <em>account.</em></>}</h1>
       <p>{mode === 'login' ? 'Sign in to continue with your courses and saved study chats.' : 'Use your email to create a personal course workspace.'}</p>
-      {!authConfigured ? <div className="auth-notice" role="alert">Sign-in needs your Supabase project URL and public key. Copy <code>frontend/.env.example</code> to <code>frontend/.env.local</code>, add those same values to the existing project-root <code>.env</code>, and restart both local servers. Keep your Groq key and never use a service-role key in React.</div> : <form onSubmit={submit}>
-        <label htmlFor="auth-email">Email address</label><input id="auth-email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com"/>
-        <label htmlFor="auth-password">Password</label><input id="auth-password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength="8" required value={password} onChange={event => setPassword(event.target.value)} placeholder="At least 8 characters"/>
-        {error && <div className="auth-error" role="alert">{error}</div>}{message && <div className="auth-message" role="status">{message}</div>}
+      {!authConfigured ? <div className="auth-notice" role="alert">Sign-in needs your Supabase project URL and public key. Copy <code>frontend/.env.example</code> to <code>frontend/.env.local</code>, add those same values to the existing project-root <code>.env</code>, and restart both local servers. Keep your Groq key and never use a service-role key in React.</div> : <form onSubmit={submit} aria-busy={busy}>
+        <label htmlFor="auth-email">Email address</label><input name="email" id="auth-email" type="email" autoComplete="email" aria-invalid={Boolean(error)} aria-describedby={error?'auth-error':undefined} required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com"/>
+        <label htmlFor="auth-password">Password</label><div className="password-field"><input name="password" id="auth-password" type={passwordVisible ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} aria-invalid={Boolean(error)} aria-describedby={error?'auth-error':undefined} minLength="8" required value={password} onChange={event => setPassword(event.target.value)} placeholder="At least 8 characters"/><button type="button" aria-label={passwordVisible?'Hide password':'Show password'} aria-pressed={passwordVisible} onClick={()=>setPasswordVisible(!passwordVisible)}>{passwordVisible?<EyeOff size={18}/>:<Eye size={18}/>}</button></div>
+        {error && <div id="auth-error" className="auth-error" role="alert">{error}</div>}{message && <div className="auth-message" role="status">{message}</div>}
         <button className="button-primary auth-submit" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}<ArrowRight size={15}/></button>
       </form>}
       {authConfigured && <button className="auth-switch" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setMessage(''); }}>{mode === 'login' ? 'New here? Create an account' : 'Already registered? Sign in'}</button>}

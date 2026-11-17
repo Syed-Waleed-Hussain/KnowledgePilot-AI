@@ -34,7 +34,7 @@ def allow_only_alice(monkeypatch):
 def test_mcp_client_discovers_tool_executes_it_and_rejects_other_student(monkeypatch):
     allow_only_alice(monkeypatch)
     calls = []
-    server = build_document_server(lambda **kwargs: calls.append(kwargs) or [SOURCE])
+    server = build_document_server(lambda **kwargs: calls.append(kwargs) or [SOURCE], trusted_user_id="alice")
 
     async def exercise_protocol():
         async with Client(server, mode="legacy") as client:
@@ -46,15 +46,17 @@ def test_mcp_client_discovers_tool_executes_it_and_rejects_other_student(monkeyp
             )
             assert not response.is_error
             assert json.loads(response.content[0].text)[0]["source"] == "biology.pdf"
-            try:
-                await client.call_tool(
-                    "search_course_documents",
-                    {"query": "energy", "course_id": "course-a", "user_id": "bob", "limit": 6},
-                )
-            except Exception:
-                pass
-            else:
-                pytest.fail("MCP allowed a different student's identity.")
+            denied = await client.call_tool(
+                "search_course_documents",
+                {"query": "energy", "course_id": "course-a", "user_id": "bob", "limit": 6},
+            )
+            assert denied.is_error is True
+            payload = denied.model_dump_json(by_alias=True)
+            assert json.loads(payload)["isError"] is True
+            assert len(denied.content) == 1
+            assert denied.content[0].text in ("Course unavailable or access denied.", "Error executing tool search_course_documents: Course unavailable or access denied.")
+            for private_value in (SOURCE["source"], SOURCE["text"], "course-a", "bob", "sqlite", "Traceback", "private-id", "GROQ_API_KEY", "SUPABASE_ACCESS_TOKEN", "password"):
+                assert private_value not in payload
 
     asyncio.run(exercise_protocol())
     assert len(calls) == 1
@@ -63,7 +65,7 @@ def test_mcp_client_discovers_tool_executes_it_and_rejects_other_student(monkeyp
 
 def test_mcp_helper_reports_real_discovery_and_tool_execution(monkeypatch):
     allow_only_alice(monkeypatch)
-    server = build_document_server(lambda **kwargs: [SOURCE])
+    server = build_document_server(lambda **kwargs: [SOURCE], trusted_user_id="alice")
     trace = []
     results = asyncio.run(call_document_search(
         server, query="energy", course_id="course-a", user_id="alice", trace=trace,

@@ -8,6 +8,7 @@ from typing import Any
 
 from mcp import Client
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from backend import course_store
 
@@ -21,7 +22,7 @@ def _record(trace: list[dict[str, Any]] | None, step: str, status: str, started:
     logger.info("phase4_trace step=%s status=%s duration_ms=%.2f", step, status, event["duration_ms"])
 
 
-def build_document_server(search_callback: Callable[..., list[dict[str, Any]]]) -> MCPServer:
+def build_document_server(search_callback: Callable[..., list[dict[str, Any]]], *, trusted_user_id: str) -> MCPServer:
     """Create an in-process MCP server bound to this API process's RAG store."""
     server = MCPServer("KnowledgePilot local course documents")
 
@@ -33,11 +34,11 @@ def build_document_server(search_callback: Callable[..., list[dict[str, Any]]]) 
         """Search indexed passages in one course owned by the signed-in user."""
         query = query.strip()
         if not query or len(query) > 3000:
-            raise ValueError("Search query must contain 1 to 3000 characters.")
+            raise ToolError("Search query must contain 1 to 3000 characters.")
         if not course_id or len(course_id) > 100 or not user_id or len(user_id) > 200:
-            raise ValueError("Course or user identifier is invalid.")
-        if not course_store.course_exists(course_id, user_id):
-            raise ValueError("Course not found for this user.")
+            raise ToolError("Course or user identifier is invalid.")
+        if user_id != trusted_user_id or not course_store.course_exists(course_id, trusted_user_id):
+            raise ToolError("Course unavailable or access denied.")
         bounded_limit = max(1, min(int(limit), 6))
         results = search_callback(
             query=query,

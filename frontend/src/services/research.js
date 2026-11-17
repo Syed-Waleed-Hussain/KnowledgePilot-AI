@@ -1,0 +1,11 @@
+import { request } from './api.js';
+const json = (path, body, method='POST') => request(path,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+export const researchTopics = () => request('/research/topics');
+export const createResearchTopic = title => json('/research/topics',{title});
+export const researchTopic = id => request(`/research/topics/${encodeURIComponent(id)}`);
+export const discoverPapers = (topic_id,query,secondary=false) => json('/research/discover',{topic_id,query,secondary});
+export const saveResearchPaper = (topic_id,paper) => json('/research/papers',{topic_id,provider:paper.provider,external_id:paper.external_id});
+export const researchPaper = id => request(`/research/papers/${encodeURIComponent(id)}`);
+export const saveResearchNote = (id,note_text) => json(`/research/papers/${encodeURIComponent(id)}/notes`,{note_text},'PATCH');
+export const analyzeResearch = (topic_id,task,paper_ids,request_id) => json('/research/analyze',{topic_id,task,paper_ids,request_id});
+export const exportResearch = (topic_id,paper_ids,format) => json('/research/export',{topic_id,paper_ids,format});

@@ -47,7 +47,7 @@ def test_real_protocol_and_combined_graph(tmp_path, monkeypatch):
     def search(**kwargs):
         calls.append(kwargs)
         return passages
-    server = build_document_server(search)
+    server = build_document_server(search, trusted_user_id="alice")
     async def exercise():
         trace = []
         assert await call_document_search(server, query='compare', course_id='a', user_id='alice', trace=trace) == passages
@@ -67,3 +67,35 @@ def test_real_protocol_and_combined_graph(tmp_path, monkeypatch):
         assert [e['step'] for e in result['trace']] == ['node.prepare', 'mcp.tool_discovery', 'mcp.search_course_documents', 'node.retrieve', 'node.compare', 'node.generate_quiz', 'node.generate']
         print(json.dumps(result['trace']))
     asyncio.run(asyncio.wait_for(exercise(), timeout=30))
+
+def test_mcp_identity_boundary(tmp_path, monkeypatch):
+    from mcp import Client
+    monkeypatch.setattr(course_store, 'DATABASE_PATH', tmp_path / 'private.sqlite3')
+    course_store.initialize_database()
+    with course_store.connect() as db:
+        db.executemany('INSERT INTO courses (course_id,user_id,name) VALUES (?,?,?)', [('a', 'alice', 'A'), ('b', 'bob', 'B')])
+    calls = []
+    def search(**kwargs):
+        calls.append(kwargs)
+        return [dict(source=kwargs['user_id'] + '-private.pdf', text='private passage', document_id='private-id', page=1)]
+    async def exercise():
+        for owner, course, other_course, other_user in [('alice', 'a', 'b', 'bob'), ('bob', 'b', 'a', 'alice')]:
+            server = build_document_server(search, trusted_user_id=owner)
+            async with Client(server, mode='legacy', read_timeout_seconds=10) as client:
+                assert 'search_course_documents' in {t.name for t in (await client.list_tools()).tools}
+                allowed = await client.call_tool('search_course_documents', dict(query='topic', course_id=course, user_id=owner))
+                assert not allowed.is_error
+                assert json.loads(allowed.content[0].text)[0]['source'] == owner + '-private.pdf'
+                for target, supplied_user in [(other_course, owner), (other_course, other_user), ('missing', owner)]:
+                    before = len(calls)
+                    denied = await client.call_tool('search_course_documents', dict(query='topic', course_id=target, user_id=supplied_user))
+                    assert denied.is_error is True
+                    assert len(denied.content) == 1
+                    assert denied.content[0].text in ("Course unavailable or access denied.", "Error executing tool search_course_documents: Course unavailable or access denied.")
+                    assert denied.model_dump(by_alias=True).get('structuredContent') is None
+                    payload = denied.model_dump_json()
+                    for secret in ['private.pdf', 'private passage', 'private-id', str(tmp_path), 'Traceback', 'GROQ_API_KEY', 'SUPABASE_ACCESS_TOKEN', 'password']:
+                        assert secret not in payload
+                    assert len(calls) == before
+        assert len(calls) == 2
+    asyncio.run(asyncio.wait_for(exercise(), 30))

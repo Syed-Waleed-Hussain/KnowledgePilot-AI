@@ -1,3 +1,4 @@
+import { trapDialogFocus } from './dialogFocus.js';
 import { useEffect, useRef } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 
@@ -6,12 +7,13 @@ export default function ReferencesDrawer({ sources, onClose }) {
   const reducedMotion = useReducedMotion();
   useEffect(() => {
     const previousFocus = document.activeElement;
-    dialog.current.showModal();
-    return () => { dialog.current?.close(); previousFocus?.focus(); };
+    const node = dialog.current;
+    node.showModal();
+    return () => { node.close(); if(previousFocus?.isConnected) previousFocus.focus({preventScroll:true}); };
   }, []);
 
   // Native dialog handles focus trapping; Escape and the backdrop also close it.
-  return <dialog ref={dialog} className="references-dialog" aria-labelledby="references-title"
+  return <dialog onKeyDown={trapDialogFocus} ref={dialog} className="references-dialog" aria-labelledby="references-title"
     onCancel={event => { event.preventDefault(); onClose(); }}
     onClick={event => { const bounds = dialog.current.getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right) onClose(); }}>
     <motion.aside initial={{ x: reducedMotion ? 0 : 25, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: .2 }}>

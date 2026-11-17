@@ -305,6 +305,27 @@ def test_course_delete_requires_confirmation_and_cascades():
     assert not (api.PDF_FOLDER / f"{record['document_id']}.pdf").exists()
 
 
+def test_partial_index_validation_failure_removes_attempted_upload(monkeypatch):
+    course = create_course("Rollback check")
+    original_add = api.add_document_chunks
+
+    def partial_then_fail(*args, **kwargs):
+        original_add(*args, **kwargs)
+        raise ValueError("Synthetic indexing failure")
+
+    monkeypatch.setattr(api, "add_document_chunks", partial_then_fail)
+    response = client.post(
+        "/documents/upload", data={"course_id": course["course_id"]},
+        files={"file": ("synthetic.pdf", pdf_bytes("orchid"), "application/pdf")},
+    )
+    assert response.status_code == 422
+    assert api.collection.count() == 0
+    assert list(api.PDF_FOLDER.iterdir()) == []
+    with course_store.connect() as database:
+        assert database.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
+        assert database.execute("SELECT status FROM processing_jobs").fetchone()[0] == "failed"
+
+
 def test_invalid_file_is_rejected():
     course = create_course("Botany")
     result = client.post("/documents/upload", data={"course_id": course["course_id"]}, files={

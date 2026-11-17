@@ -183,9 +183,32 @@ def format_mcq_answer(question: str, answer: str) -> str:
     return "\n".join(rendered).strip()
 
 
+def clean_markdown(answer: str) -> str:
+    """Remove prose artifacts without unescaping mathematics or code."""
+    # A lone trailing slash after prose is a model formatting artifact. Keep math,
+    # code fences, and paired LaTeX line-break slashes intact.
+    lines, fenced, math_block = [], False, False
+    for line in answer.splitlines():
+        if line.lstrip().startswith(('```', '~~~')):
+            fenced = not fenced
+        if line.strip() in ('$$', r'\[', r'\]'):
+            math_block = not math_block
+        if not fenced and not math_block and not re.search(r'[$`]|[A-Za-z]:\\|\\(?:begin|end|\(|\))', line):
+            line = re.sub(r'(?<!\\)\\\s*$', '', line)
+        lines.append(line)
+    answer = '\n'.join(lines)
+    # Remove only a trailing duplicated source list, keeping inline citations.
+    tail = re.search(r'\n#{1,6}\s+(?:Sources|References)\s*\n([\s\S]*)$', answer, re.I)
+    if tail:
+        entries = [line.strip() for line in tail[1].splitlines() if line.strip()]
+        if entries and all(re.match(r'^(?:[-*]\s*)?\[\d+\]', line) for line in entries):
+            answer = answer[:tail.start()]
+    return answer
+
+
 def prepare_answer(question: str, answer: str, source_count: int) -> str:
     """Apply safe, bounded formatting and citation normalization."""
-    answer = format_mcq_answer(question, answer)
+    answer = format_mcq_answer(question, clean_markdown(answer))
     return normalize_citations(answer, source_count)
 
 def render_quiz(data: dict, source_count: int, expected_count: int = 5) -> str:
@@ -223,4 +246,8 @@ def render_quiz(data: dict, source_count: int, expected_count: int = 5) -> str:
         if sources:
             lines += ['**Source:** ' + ' '.join(f'[{n}]' for n in dict.fromkeys(sources))]
         blocks.append('\n\n'.join(lines))
-    return '\n\n'.join(blocks)
+    rendered=clean_markdown('\n\n'.join(blocks))
+    markers=re.findall(r'[\[【〔]\s*(?:(?:source|ref(?:erence)?)\s*)?(\d+)\s*[\]】〕]',rendered,re.I)
+    if any(not 1<=int(n)<=source_count for n in markers):
+        raise ValueError('Quiz text references an unsupported source.')
+    return normalize_citations(rendered, source_count)

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test test-auth.mjs && node test-phase7.mjs && node test-infographic.mjs && node test-research-notes.mjs && node test-research-output.mjs && node test-research-pdf.mjs && node tests/markdown-check.mjs && node tests/ui-check.mjs",
+    "preview:ui": "node tests/ui-preview.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

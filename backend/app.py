@@ -6,7 +6,7 @@ import os
 import re
 import sys
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path, PurePath
 from typing import Any
 
@@ -22,7 +22,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend import course_store
-from backend.chat_memory import load_history, retrieval_question
+from backend.chat_memory import load_history, parse_saved_infographic, retrieval_question
+from backend.chat_turns import begin_turn, fail_turn, complete_turn
+from backend.agent_harness import AgentRunContext, run_graph
+from backend.infographic import create_infographic_answer, detect_infographic_intent, infographic_search_query
 from backend.phase4_graph import build_question_graph
 from backend.supabase_auth import get_current_user
 from llm_service import LLMServiceError, generate_answer
@@ -36,7 +39,11 @@ COLLECTION_NAME = "knowledgepilot_course_documents"
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_PDF_BYTES", str(5 * 1024 * 1024)))
 MAX_COURSES = int(os.getenv("MAX_COURSES_PER_USER", "3"))
 MAX_DOCUMENTS_PER_COURSE = int(os.getenv("MAX_DOCUMENTS_PER_COURSE", "5"))
-MAX_DAILY_QUESTIONS = int(os.getenv("MAX_AI_QUESTIONS_PER_DAY", "10"))
+def daily_question_limit():
+    return max(1, int(os.getenv('MAX_AI_QUESTIONS_PER_DAY', '10')))
+
+
+MAX_DAILY_QUESTIONS = daily_question_limit()
 MAX_PROCESSING_TASKS = int(os.getenv("MAX_CONCURRENT_PROCESSING", "2"))
 
 STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
@@ -49,6 +56,7 @@ embedding_model: Any = None
 app = FastAPI(title="KnowledgePilot Local API", version="3.0.0")
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=[origin.strip() for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()],
     # Allow Vite's fallback ports while keeping browser access on loopback only.
     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):[0-9]{1,5}$",
     allow_credentials=False,
@@ -144,17 +152,26 @@ def finish_processing(job_id: str, status: str) -> None:
         database.execute("UPDATE processing_jobs SET status = ? WHERE job_id = ?", (status, job_id))
 
 
-def reserve_daily_question(user_id: str) -> None:
-    today = date.today().isoformat()
+def reserve_daily_question(user_id: str, request_key: str | None = None, question_hash: str = "") -> None:
+    today = datetime.now(timezone.utc).date().isoformat()
     with course_store.connect() as database:
         database.execute("BEGIN IMMEDIATE")
+        if request_key:
+            reserved = database.execute("SELECT question_hash FROM question_reservations WHERE user_id=? AND request_key=?", (user_id, request_key)).fetchone()
+            if reserved:
+                if reserved["question_hash"] != question_hash:
+                    raise HTTPException(409, "This request ID already belongs to a different message.")
+                return
+            database.execute("INSERT INTO question_reservations VALUES (?,?,?)", (user_id, request_key, question_hash))
         row = database.execute(
             "SELECT question_count FROM daily_usage WHERE user_id = ? AND usage_date = ?",
             (user_id, today),
         ).fetchone()
         count = int(row["question_count"]) if row else 0
         if count >= MAX_DAILY_QUESTIONS:
-            raise HTTPException(status_code=429, detail="You have reached today's AI question limit. Try again tomorrow.")
+            reset = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat() + 'T00:00:00Z'
+            raise HTTPException(status_code=429, detail=dict(message=f"Your daily student AI allowance is exhausted (0 remaining). Next reset: {reset}. This is separate from Groq limits.",
+                error_category='app_quota', remaining=0, limit=MAX_DAILY_QUESTIONS, resets_at=reset))
         if row:
             database.execute(
                 "UPDATE daily_usage SET question_count = question_count + 1 WHERE user_id = ? AND usage_date = ?",
@@ -331,6 +348,9 @@ async def upload_document(
         finish_processing(job_id, "complete")
     except ValueError as error:
         finish_processing(job_id, "failed")
+        if vector_collection is not None:
+            vector_collection.delete(where={"document_id": document_id})
+        stored_path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(error)) from error
     except Exception:
         finish_processing(job_id, "failed")
@@ -365,39 +385,88 @@ def delete_document(document_id: str, confirmed: bool = Query(False), user: dict
 
 @app.post("/chat/ask")
 async def ask_question(request: QuestionRequest, user: dict[str, str] = Depends(get_current_user)) -> dict[str, Any]:
+    return await _answer_question(request, user, force_infographic=False)
+
+
+@app.post("/chat/infographic")
+async def generate_infographic_route(request: QuestionRequest, user: dict[str, str] = Depends(get_current_user)) -> dict[str, Any]:
+    return await _answer_question(request, user, force_infographic=True)
+
+
+async def _answer_question(request: QuestionRequest, user: dict[str, str], *, force_infographic: bool) -> dict[str, Any]:
     require_course(request.course_id, user["id"])
     question = request.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Enter a question.")
+    infographic_mode = force_infographic or detect_infographic_intent(question)
     history = load_history(request.session_id, request.course_id, user["id"])
     # A retry of a completed turn returns its saved answer without a second LLM call.
     answer_id = f"answer:{user['id']}:{request.course_id}:{request.session_id}:{request.request_id}" if request.request_id else uuid.uuid4().hex
     with course_store.connect() as database:
+        if request.request_id:
+            existing = database.execute("SELECT message_id FROM chat_messages WHERE role='student' AND request_id=? AND user_id=? AND course_id=? AND (? IS NULL OR session_id=?) ORDER BY rowid DESC LIMIT 1",
+                (request.request_id, user['id'], request.course_id, request.session_id, request.session_id)).fetchone()
+            if existing:
+                answer_id = existing['message_id'].removeprefix('student:')
         saved = database.execute(
-            "SELECT content, sources_json, session_id FROM chat_messages WHERE message_id=? AND user_id=? AND course_id=?",
+            "SELECT role, content, sources_json, session_id FROM chat_messages WHERE message_id=? AND user_id=? AND course_id=?",
             (answer_id, user["id"], request.course_id),
         ).fetchone()
     if saved:
         with course_store.connect() as database:
             original = database.execute("SELECT content FROM chat_messages WHERE message_id=?", ("student:" + answer_id,)).fetchone()
-        if saved["session_id"] != request.session_id or not original or original["content"] != question:
+        if (request.session_id and saved["session_id"] != request.session_id) or not original or original["content"] != question:
             raise HTTPException(409, "This request ID already belongs to a different message.")
-        return {"answer": saved["content"], "sources": json.loads(saved["sources_json"]),
+        response = {"answer": saved["content"], "sources": json.loads(saved["sources_json"]),
                 "mode": "generated", "session_id": saved["session_id"], "error": None,
                 "workflow_executed": False, "mcp_tool_executed": False, "workflow_trace": []}
+        if saved["role"] == "infographic":
+            response.update(answer=None, output="infographic", infographic=parse_saved_infographic(saved["content"]))
+        return response
     documents = course_store.course_documents(request.course_id, user["id"])
     if not documents:
         raise HTTPException(status_code=404, detail="This course has no indexed documents yet.")
 
-    combined = bool(re.search(r"compare|comparison", question, re.I) and re.search(r"quiz|mcq", question, re.I))
+    with course_store.connect() as database:
+        prior = database.execute('SELECT session_id, resolved_query FROM chat_messages WHERE message_id=? AND user_id=? AND course_id=?',
+            ('student:' + answer_id, user['id'], request.course_id)).fetchone()
+    session_id = request.session_id or (prior['session_id'] if prior else create_chat(request.course_id, user)['session_id'])
+    request_id = request.request_id or uuid.uuid4().hex
+    if not request.session_id:
+        history = load_history(session_id, request.course_id, user['id'])
+    if prior:
+        history = load_history(session_id, request.course_id, user['id'], before_message_id='student:' + answer_id)
+    # The current student bubble is persisted, but must not become its own context.
+    prior_turn = next((index for index, item in enumerate(history) if item.get('request_id') == request_id), None)
+    if prior_turn is not None:
+        history = history[:prior_turn]
+
+    combined = bool(re.search(r"compare|comparison", question, re.I) and re.search(r"quiz|mcq", question, re.I)) and not infographic_mode
+    study_plan = bool(re.search(r'\b(?:exam|revision|study plan|study schedule)\b', question, re.I)) and not bool(re.search(r'\b(?:quiz|mcqs?|multiple.choice)\b', question, re.I)) and not infographic_mode
     selected_documents = []
-    if combined:
+    if combined or study_plan:
         context = question + " " + " ".join(item.get("text", "") for item in history[-8:] if item.get("role") == "student")
-        selected_documents = [d for d in documents if d["filename"].casefold() in context.casefold()]
-        if len(selected_documents) != 2 and len(documents) == 2:
+        scopes=[question,context] if study_plan else [context]
+        for scope in scopes:
+            numbers=set()
+            for match in re.finditer(r'\blectures?\s*(\d+(?:\s*(?:and|,|&)\s*\d+)*)',scope,re.I):
+                numbers.update(re.findall(r'\d+',match[1]))
+            for document in documents:
+                filename=document['filename']
+                number=re.search(r'lecture[\s_-]*(\d+)',filename,re.I)
+                if filename.casefold() in scope.casefold() or Path(filename).stem.casefold() in scope.casefold() or (number and number[1] in numbers):
+                    selected_documents.append(document)
+            if selected_documents:break
+        two_requested=bool(re.search(r'\b(?:2|two|both)\s+(?:lectures?|pdfs?|documents?)\b',question,re.I))
+        if len(selected_documents) != 2 and len(documents) == 2 and (combined or not selected_documents or two_requested):
             selected_documents = documents
-        if len(selected_documents) != 2 or len({d["filename"] for d in selected_documents}) != 2:
+        if combined and (len(selected_documents) != 2 or len({d["filename"] for d in selected_documents}) != 2):
             raise HTTPException(422, "Please name the two lecture PDF filenames to compare.")
+        if study_plan and not selected_documents:
+            if len(documents)==1:selected_documents=documents
+            else:raise HTTPException(422,'Please name the lecture PDFs you want to prepare for.')
+        if study_plan and len(selected_documents)>2:
+            raise HTTPException(422,'Please name one or two lecture PDFs for this study plan.')
     requested_page = re.search(r"\bpage\s+(\d+)\b", question, re.IGNORECASE)
 
     def search_course(
@@ -410,12 +479,13 @@ async def ask_question(request: QuestionRequest, user: dict[str, str] = Depends(
         filters = [{"course_id": course_id}, {"user_id": user_id}]
         if page is not None:
             filters.append({"page": page})
-        if combined:
+        if combined or study_plan:
             passages = []
             for document in selected_documents:
                 passages.extend(search_relevant_chunks(
                     vector_collection, query, get_model(), top_k=3,
                     where={"$and": filters + [{"document_id": document["document_id"]}]},
+                    **({'minimum_similarity':0.0} if study_plan else {}),
                 ))
             return passages
         return search_relevant_chunks(
@@ -424,26 +494,53 @@ async def ask_question(request: QuestionRequest, user: dict[str, str] = Depends(
             where={"$and": filters},
         )
 
+    resolved_query = (prior['resolved_query'] if prior else None) or retrieval_question(question, history)
+    if study_plan:
+        # Explicit document scope is sufficient even when 'these lectures' has no chat antecedent.
+        resolved_query=question+'\nLecture PDFs: '+', '.join(d['filename'] for d in selected_documents)
+    if infographic_mode:
+        resolved_query = infographic_search_query(question, history)
+
+    def infographic_callback(prompt, passages, history=None):
+        # The original request carries layout intent; the resolved query keeps
+        # follow-up topics grounded in the earlier conversation.
+        return create_infographic_answer(question, passages, history, topic=resolved_query)
+
     graph = build_question_graph(
         search_callback=search_course,
         follow_up_callback=retrieval_question,
-        before_answer=reserve_daily_question,
-        answer_callback=generate_answer,
+        before_answer=lambda uid: reserve_daily_question(uid, answer_id, hashlib.sha256(question.encode()).hexdigest()),
+        answer_callback=infographic_callback if infographic_mode else generate_answer,
     )
+    begin_turn(answer_id, session_id, user['id'], request.course_id, question, request_id, resolved_query)
     try:
-        result = await graph.ainvoke({
+        run_state = {
             "question": question,
+            "search_question": resolved_query,
+            "document_names": [d['filename'] for d in selected_documents] if study_plan else [],
             "course_id": request.course_id,
             "user_id": user["id"],
             "history": history,
             "page": int(requested_page.group(1)) if requested_page else None,
-        })
-    except HTTPException:
+            "output_kind": "infographic" if infographic_mode else "markdown",
+        }
+        run_context = AgentRunContext(user_id=user["id"], course_id=request.course_id, session_id=session_id)
+        # Only the structured format asks the harness to skip Markdown quality
+        # evaluation; the normal chat call keeps its original three-argument
+        # shape for existing harness integrations.
+        if infographic_mode:
+            result = await run_graph(graph, run_state, run_context, evaluate_answer_quality=False)
+        else:
+            result = await run_graph(graph, run_state, run_context)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else dict(message=str(exc.detail))
+        fail_turn(answer_id, user['id'], dict(error=detail.get('message'), error_category=detail.get('error_category', 'internal'), retryable=True))
         raise
     except Exception:
+        fail_turn(answer_id, user['id'], dict(error='Internal workflow failure. Retry this saved turn.', error_category='internal', retryable=True))
         raise HTTPException(status_code=503, detail="Document retrieval failed. Try again or restart the local API.") from None
     passages = result.get("passages", [])
-    if not passages:
+    if not passages and not result.get("error"):
         raise HTTPException(status_code=404, detail="No relevant text was found in this course's documents.")
     passages = passages[:6]
     sources = [{
@@ -453,21 +550,38 @@ async def ask_question(request: QuestionRequest, user: dict[str, str] = Depends(
     mode = result.get("mode", "retrieval_only")
     answer = result.get("answer", "")
     error = result.get("error")
-    session_id = request.session_id
     if mode != "generated":
-        return {"answer": None, "error": error or "The AI answer service is unavailable. Review the retrieved passages below and try again later.",
+        failure = dict(error=error, error_category=result.get('error_category', 'internal'), retryable=result.get('retryable', False), retry_after=result.get('retry_after'))
+        fail_turn(answer_id, user['id'], failure)
+        return {"answer": None, "success": False, **failure, "request_id": request_id,
                 "sources": sources, "mode": mode, "session_id": session_id,
                 "workflow_executed": True, "mcp_tool_executed": bool(result.get("mcp_used")),
-                "workflow_trace": result.get("trace", [])}
-    if not session_id:
-        session_id = create_chat(request.course_id, user)["session_id"]
-    with course_store.connect() as database:
-        # Both messages are saved atomically. The request ID prevents duplicate saved turns.
-        database.executemany(
-            "INSERT OR IGNORE INTO chat_messages (message_id, session_id, user_id, course_id, role, content, sources_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [("student:" + answer_id, session_id, user["id"], request.course_id, "student", question, "[]"),
-             (answer_id, session_id, user["id"], request.course_id, "generated", answer, json.dumps(sources))],
-        )
+                "workflow_trace": result.get("trace", []), "reliability": result.get("reliability"), "evaluation": result.get("evaluation")}
+    if infographic_mode:
+        infographic = result.get("infographic")
+        if not isinstance(infographic, dict):
+            failure = dict(error="The infographic output could not be validated. Please try again.",
+                           error_category="invalid_infographic", retryable=True)
+            fail_turn(answer_id, user['id'], failure)
+            return {"answer": None, "success": False, **failure, "request_id": request_id,
+                    "sources": sources, "mode": "retrieval_only", "session_id": session_id,
+                    "workflow_executed": True, "mcp_tool_executed": bool(result.get("mcp_used")),
+                    "workflow_trace": result.get("trace", []), "reliability": result.get("reliability"),
+                    "evaluation": result.get("evaluation")}
+        complete_turn(answer_id, session_id, user['id'], request.course_id, answer, sources, role="infographic")
+        return {"answer": None, "infographic": infographic, "output": "infographic", "error": None,
+                "sources": sources, "mode": mode, "session_id": session_id,
+                "workflow_executed": True, "mcp_tool_executed": bool(result.get("mcp_used")),
+                "workflow_trace": result.get("trace", []), "reliability": result.get("reliability"),
+                "evaluation": result.get("evaluation")}
+    complete_turn(answer_id, session_id, user['id'], request.course_id, answer, sources)
     return {"answer": answer, "error": None, "sources": sources, "mode": mode, "session_id": session_id,
             "workflow_executed": True, "mcp_tool_executed": bool(result.get("mcp_used")),
-            "workflow_trace": result.get("trace", [])}
+            "workflow_trace": result.get("trace", []), "reliability": result.get("reliability"), "evaluation": result.get("evaluation")}
+
+
+# Additive research tables and routes share the verified account and daily quota.
+from backend import research_store
+from backend.research_api import create_router as create_research_router
+research_store.initialize()
+app.include_router(create_research_router(reserve_daily_question))

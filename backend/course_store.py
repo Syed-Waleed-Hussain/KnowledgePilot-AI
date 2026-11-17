@@ -82,6 +82,12 @@ def initialize_database() -> None:
                 sources_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS question_reservations (
+                user_id TEXT NOT NULL,
+                request_key TEXT NOT NULL,
+                question_hash TEXT NOT NULL,
+                PRIMARY KEY (user_id, request_key)
+            );
             CREATE TABLE IF NOT EXISTS daily_usage (
                 user_id TEXT NOT NULL,
                 usage_date TEXT NOT NULL,
@@ -101,6 +107,9 @@ def initialize_database() -> None:
             """
         )
         _add_column(database, "processing_jobs", "course_id", "TEXT")
+        _add_column(database, "chat_messages", "request_id", "TEXT")
+        _add_column(database, "chat_messages", "resolved_query", "TEXT")
+        _add_column(database, "chat_messages", "failure_json", "TEXT NOT NULL DEFAULT '{}'")
         # Any unfinished local upload was interrupted by a previous backend stop.
         database.execute("UPDATE processing_jobs SET status = 'interrupted' WHERE status = 'processing'")
 

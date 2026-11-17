@@ -1,7 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001';
+const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://127.0.0.1:8001')).replace(/\/$/, '');
 import { getSession } from './auth.js';
 
-async function request(path, options = {}) {
+export async function request(path, options = {}) {
+  if (!API_URL) throw new Error('The application API address is not configured. Contact the administrator.');
   const session = await getSession();
   const token = session?.access_token;
   if (!token) throw new Error('Sign in to access your private workspace.');
@@ -10,7 +11,8 @@ async function request(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, { ...options, headers });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result.detail || `Request failed (${response.status}).`);
+    const detail = result.detail;
+    throw new Error(typeof detail === 'string' ? detail : detail?.message || `Request failed (${response.status}).`);
   }
   return result;
 }
@@ -58,6 +60,14 @@ export function deleteDocument(documentId) {
 
 export function askQuestion(courseId, question, sessionId = '', requestId = '') {
   return request('/chat/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ course_id: courseId, question, session_id: sessionId || null, request_id: requestId || null }),
+  });
+}
+
+export function generateInfographic(courseId, question, sessionId = '', requestId = '') {
+  return request('/chat/infographic', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ course_id: courseId, question, session_id: sessionId || null, request_id: requestId || null }),

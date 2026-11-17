@@ -41,3 +41,38 @@ node_modules/
 dist/
 /Agentic AI Project Proposal.docx
 /Agentic AI Project Proposal.docx.pdf
+# Synthetic bandit policies and metrics
+backend/.phase6_experiments/
+
+frontend/phase7-build.log
+
+# Private student inputs, portable databases, indexes, and provider caches
+*.pdf
+*.sqlite
+*.sqlite-*
+*.db-*
+**/chroma/
+**/chroma_db/
+**/uploads/
+**/research_cache/
+**/research_caches/
+**/venv/
+
+# Local UI/UX screenshots and browser evidence
+frontend/ux-evidence/
+
+# Private application storage
+backend/storage_phase3/
+backend/backups/
+
+# Local credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local environments and dependencies
+.venv/
+**/.venv/
+node_modules/
+dist/

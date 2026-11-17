@@ -48,20 +48,23 @@ export async function signUp(email, password) {
 
 export async function signIn(email, password) {
   const session = await authRequest('/token?grant_type=password', { email, password });
+  sessionGeneration += 1;
   saveSession(session);
   return session;
 }
 
 let refreshRequest;
+let sessionGeneration = 0;
 export async function getSession() {
   const session = savedSession();
   if (!session?.access_token) return null;
   if (session.expires_at > Math.floor(Date.now() / 1000) + 60) return session;
   if (!session.refresh_token) { saveSession(null); return null; }
   if (!refreshRequest) {
+    const generation = sessionGeneration;
     refreshRequest = authRequest('/token?grant_type=refresh_token', { refresh_token: session.refresh_token })
-      .then(updated => { saveSession(updated); return updated; })
-      .catch(() => { saveSession(null); return null; })
+      .then(updated => { if (generation !== sessionGeneration) return null; saveSession(updated); return updated; })
+      .catch(() => { if (generation === sessionGeneration) saveSession(null); return null; })
       .finally(() => { refreshRequest = null; });
   }
   return refreshRequest;
@@ -69,6 +72,8 @@ export async function getSession() {
 
 export async function signOut() {
   const session = savedSession();
+  sessionGeneration += 1;
+  saveSession(null);
   try {
     if (session?.access_token) await authRequest('/logout', {}, session.access_token);
   } catch {
